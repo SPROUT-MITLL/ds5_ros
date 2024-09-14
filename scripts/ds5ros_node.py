@@ -5,6 +5,7 @@
 
 import rospy
 import math
+import traceback
 from sensor_msgs.msg import JoyFeedbackArray, Joy
 
 from pydualsense import *
@@ -16,6 +17,9 @@ class Ds5Ros():
         
         # 0 is startup, 1 is running
         self.node_state = 0
+
+        # previous msg store, initialized with empty message to start
+        self.prev_msg = Joy()
 
         # create dualsense
         self.dualsense = pydualsense()
@@ -131,9 +135,12 @@ class Ds5Ros():
             if(abs(joy_msg.axes[val]) < self.deadzone):
                 joy_msg.axes[val] = 0.0
 
+        if self.prev_msg.axes == joy_msg.axes and self.prev_msg.buttons == joy_msg.buttons:
+            # If message hasn't changed, don't publish it to avoid clogging network
+            self.prev_msg = joy_msg
+            return
+        self.prev_msg = joy_msg
         self.joy_pub.publish(joy_msg)
-        # except:
-        #     print("catch error")
 
     def main_loop(self):
         rate = rospy.Rate(self.noderate)
@@ -155,17 +162,13 @@ class Ds5Ros():
             elif self.node_state == 1:
                 # if error -> node_state = 0
                 try:
-                    #Add new attribute cable_connection in dualsense
-                    #Init cable_connection = True
-                    #Catch IOError in dualsense.writeReport and set cable_connection = False
-                    if self.dualsense.cable_connection:
-                        rospy.loginfo_throttle(2, "DS5_Ros is alive!" )
-                        self.joy_publish()
-                    else:
-                        rospy.logerr("Lost connection! Go back to init!")
-                        self.node_state = 0 
-                except:
-                    pass
+                    rospy.loginfo_throttle(2, "DS5_Ros is alive!" )
+                    self.joy_publish()
+                except Exception as e:
+                    print(e)
+                    print(traceback.print_exc())
+                    # Return to the connection state
+                    self.node_state = 0 
 
             rate.sleep()
         self.dualsense.close()
